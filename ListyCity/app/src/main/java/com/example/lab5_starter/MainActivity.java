@@ -11,6 +11,17 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import android.util.Log;
+import androidx.appcompat.app.AlertDialog;
+
+import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.FirebaseFirestoreException;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
+import com.google.firebase.firestore.QuerySnapshot;
+import com.google.android.gms.tasks.OnSuccessListener;
+
 import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity implements CityDialogFragment.CityDialogListener {
@@ -21,9 +32,32 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
     private ArrayList<City> cityArrayList;
     private ArrayAdapter<City> cityArrayAdapter;
 
+    private FirebaseFirestore db;
+    private CollectionReference citiesRef;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        db = FirebaseFirestore.getInstance();
+        citiesRef = db.collection("cities");
+
+        citiesRef.addSnapshotListener((QuerySnapshot value, FirebaseFirestoreException error) -> {
+            if (error != null) {
+                Log.e("Firestore", error.toString());
+            }
+            if (value != null && !value.isEmpty()) {
+                cityArrayList.clear();
+                for (QueryDocumentSnapshot snapshot : value) {
+                    String name = snapshot.getString("name");
+                    String province = snapshot.getString("province");
+
+                    cityArrayList.add(new City(name, province));
+                }
+                cityArrayAdapter.notifyDataSetChanged();
+            }
+        });
+
+
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
@@ -41,7 +75,6 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
         cityArrayAdapter = new CityArrayAdapter(this, cityArrayList);
         cityListView.setAdapter(cityArrayAdapter);
 
-        addDummyData();
 
         // set listeners
         addCityButton.setOnClickListener(view -> {
@@ -59,19 +92,52 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
 
     @Override
     public void updateCity(City city, String title, String year) {
+        // Remove old document
+        citiesRef.document(city.getName()).delete();
+
+        // Update object
         city.setName(title);
         city.setProvince(year);
-        cityArrayAdapter.notifyDataSetChanged();
 
-        // Updating the database using delete + addition
+        // Add updated document
+        citiesRef.document(city.getName()).set(city);
+
+        cityArrayAdapter.notifyDataSetChanged();
     }
+
 
     @Override
     public void addCity(City city){
         cityArrayList.add(city);
         cityArrayAdapter.notifyDataSetChanged();
 
+        DocumentReference docRef = citiesRef.document(city.getName());
+        docRef.set(city);
+        docRef.addOnSuccessListener(new OnSuccessListener<Void>() {
+            @Override
+            public void onSuccess(Void aVoid) {
+                Log.d("Firestore", "DocumentSnapshot successfully written!");
+            }
+        });
+
+
     }
+
+    cityListView.setOnItemLongClickListener((adapterView, view, i, l) -> {
+        City city = cityArrayAdapter.getItem(i);
+
+        new AlertDialog.Builder(MainActivity.this)
+                .setTitle("Delete City")
+                .setMessage("Delete " + city.getName() + "?")
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    citiesRef.document(city.getName()).delete();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+
+        return true;
+    });
+
 
     public void addDummyData(){
         City m1 = new City("Edmonton", "AB");
